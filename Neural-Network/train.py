@@ -15,7 +15,7 @@ from torch.utils.data.dataloader import default_collate
 
 
 from models import *
-from ops import DAdSGD, DAdSGDST, CDSGD, CDSGDP, CDSGDN, DAMSGrad, DAdaGrad
+from ops import DAdSGD, DLAS, CDSGD, CDSGDP, CDSGDN, DAMSGrad, DAdaGrad
 
 
 warnings.filterwarnings("ignore")
@@ -85,7 +85,7 @@ class DTrainer:
             file.writerow(["ETA"])
             for i in range(self.agents):
                 file.writerow(self.lr_logs[i])
-            if self.opt_name == "DAdSGD-ST":
+            if self.opt_name == "DLAS":
                 file.writerow(["LAMBDA"])
                 for i in range(self.agents):
                     file.writerow(self.lambda_logs[i])
@@ -159,8 +159,8 @@ class DTrainer:
     def set_opt(self):
         if self.opt_name == "DAdSGD":
             self.opt = DAdSGD
-        elif self.opt_name == "DAdSGD-ST":
-            self.opt = DAdSGDST
+        elif self.opt_name == "DLAS":
+            self.opt = DLAS
         elif self.opt_name == "CDSGD":
             self.opt = CDSGD
         elif self.opt_name == "CDSGD-P":
@@ -206,7 +206,7 @@ class DTrainer:
             self.agent_models[i].to(self.device)
             self.agent_models[i].train()
 
-            if self.opt_name == "DAdSGD" or self.opt_name == "DAdSGD-ST":
+            if self.opt_name == "DAdSGD" or self.opt_name == "DLAS":
                 self.prev_agent_models[i] = copy.deepcopy(model)
                 self.prev_agent_models[i].to(self.device)
                 self.prev_agent_models[i].train()
@@ -271,7 +271,7 @@ class DTrainer:
                 vars[i], grads[i] = self.agent_optimizers[i].collect_params()
 
 
-                if self.opt_name == "DAdSGD" or self.opt_name == "DAdSGD-ST":
+                if self.opt_name == "DAdSGD" or self.opt_name == "DLAS":
                     
                     self.prev_agent_optimizers[i].zero_grad()
                     prev_predicted_label = self.prev_agent_models[i](inputs)
@@ -279,7 +279,7 @@ class DTrainer:
                     prev_loss[i].backward()
 
 
-                    if self.opt_name == "DAdSGD-ST":
+                    if self.opt_name == "DLAS":
                         lambdas[i] = self.agent_optimizers[i].collect_lambda()
 
                     _, old_grads[i] = self.prev_agent_optimizers[i].collect_params()
@@ -307,7 +307,7 @@ class DTrainer:
                     self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
                     self.agent_optimizers[i].step(self.running_iteration, vars=vars)
                 
-                elif self.opt_name == "DAdSGD-ST":
+                elif self.opt_name == "DLAS":
                     self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
                     self.agent_optimizers[i].step(self.running_iteration, vars=vars, lambdas=lambdas)
 
@@ -321,10 +321,10 @@ class DTrainer:
                 t_acc = self.eval(self.test_loader, self.running_iteration)
                 for i in range(self.agents):
                     self.lr_logs[i].append(self.agent_optimizers[i].collect_params(lr=True))
-                    if self.opt_name == "DAdSGD-ST":
+                    if self.opt_name == "DLAS":
                         self.lambda_logs[i].append(self.agent_optimizers[i].collect_lambda())
 
-                ss = self.lr_logs[0][-1] if self.opt_name != "DAdSGD-ST" else self.lambda_logs[0][-1]
+                ss = self.lr_logs[0][-1] if self.opt_name != "DLAS" else self.lambda_logs[0][-1]
                 print(f"Epoch: {epoch+1}, Iteration: {self.running_iteration}, "+ 
                         f"Accuracy: {total_acc/total_count:.4f}, "+ 
                         f"Test Accuracy: {t_acc:.4f}, " + 
@@ -366,7 +366,7 @@ class DTrainer:
         return total_acc/total_count
 
     def trainer(self):
-        if self.opt_name == "DAdSGD" or self.opt_name == "DAdSGD-ST":
+        if self.opt_name == "DAdSGD" or self.opt_name == "DLAS":
             print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}")
         else:
             print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}" +
@@ -410,7 +410,7 @@ print(f"Test Num {args.test_num}, run num: {args.run_num}, {fname}")
 if args.test_num == 0:
     DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="DAdSGD", w=w, fname=fname, stratified=stratified)
 elif args.test_num == 1:
-    DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="DAdSGD-ST", w=w, kappa=0.37, fname=fname, stratified=stratified)
+    DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="DLAS", w=w, kappa=0.37, fname=fname, stratified=stratified)
 elif args.test_num == 2:
     DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="DAMSGrad", w=w, fname=fname, stratified=stratified)
 elif args.test_num == 3:

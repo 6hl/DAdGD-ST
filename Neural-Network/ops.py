@@ -259,9 +259,9 @@ class DAdSGD(base):
 
         return loss
 
-class DAdSGDST(base):
+class DLAS(base):
     def __init__(self, *args, **kwargs):
-        super(DAdSGDST, self).__init__(*args, **kwargs)
+        super(DLAS, self).__init__(*args, **kwargs)
 
     def collect_lambda(self):
         for group in self.param_groups:
