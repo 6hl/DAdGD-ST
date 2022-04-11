@@ -158,10 +158,10 @@ class DAdGDF(DAdGD):
         self.theta[j] = lr_new / self.eta[j][iteration-1]
         self.eta[j].append(lr_new)
 
-class DAdGDST(DAdGDF):
+class DOAS(DAdGDF):
     def __init__(self, *args, **kwargs):
-        super(DAdGDST, self).__init__(*args, **kwargs)
-        self.name = "DAdGD-ST"
+        super(DOAS, self).__init__(*args, **kwargs)
+        self.name = "DOAS"
 
     def step(self, iteration):
         summation = {}
@@ -202,60 +202,6 @@ class DAdGDST(DAdGDF):
             self.lambda_k[i] = [start]
             self.lambd_time[i] = []
             self.eta[i] = [start]
-
-class DAdGDGT(Trainer):
-    def __init__(self, eps=0.0, eta=None, *args, **kwargs):
-        if not 0.0 <= eps:
-            raise ValueError("Invalid eps: {}".format(eps))
-        super(DAdGDGT, self).__init__(*args, **kwargs)
-        self.eps = eps
-        self.theta = {}
-
-        for j in range(self.agents):
-            self.theta[j] = np.inf
-
-        if not eta:
-            self.eta = {}
-            for i in range(self.agents):
-                self.eta[i] = [1e-10]
-        self.name = "DAdGD-GT"
-
-    def compute_eta(self, j, iteration=None):
-        L = la.norm(self.y_list[j][iteration] - self.y_list[j][iteration-1]) / la.norm(self.agent_parameters[j][iteration] - self.agent_parameters[j][iteration-1])
-
-        if np.isinf(self.theta[j]):
-            lr_new = 0.5/L
-        else:
-            lr_new = min(np.sqrt(1 + self.theta[j]) * self.eta[j][iteration-1], self.eps/self.eta[j][iteration-1] +  0.5 / L)
-
-        self.theta[j] = lr_new / self.eta[j][iteration-1]
-        self.eta[j].append(lr_new)
-    
-    def step(self, iteration):
-        summation = {}
-        summat_y = {}
-        for j in range(self.agents):
-            if iteration == 0:
-                self.eta[j] = [1e-10]
-                self.y_list[j] = [self.grads[j][0]]
-            else:
-                self.compute_eta(j=j, iteration=iteration)
-
-        for i in range(self.agents):
-            summation[i] = np.zeros_like(self.agent_parameters[i][iteration])
-            summat_y[i] = np.zeros_like(self.grads[i][iteration])
-
-            for j in range(self.agents):
-                summation[i] += self.agent_matrix[i,j] * self.agent_parameters[j][iteration]
-                summat_y[i] += self.agent_matrix[i,j] * self.y_list[j][iteration]
-
-        for i in range(self.agents):
-            self.agent_parameters[i].append(summation[i] - self.eta[i][iteration] * self.y_list[i][-1])
-            grad = self.compute_grad(agent_num=i, iteration=iteration+1, save=False)
-            self.y_list[i].append(summat_y[i] + grad - self.grads[i][iteration])
-
-    def init_run(self):
-        self.y_list = {}
 
 class DAMSGrad(Trainer):
     def __init__(self, eta=1e-3, *args, **kwargs):

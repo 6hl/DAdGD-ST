@@ -59,7 +59,7 @@ class Trainer:
         self.losses.append(temp_loss/self.agents)
         self.iterations.append(iteration)
         for i in range(self.agents):
-            if self.name == "DAdGD-ST":
+            if self.name == "DOAS":
                 self.lambd_time[i].append(self.lambda_k[i][iteration])
                 self.eta_time[i].append(self.eta[i][iteration])
             else:
@@ -72,7 +72,7 @@ class Trainer:
         et = sum([et[-1] for et in self.eta.values()])/self.agents
 
         if iteration % 200 == 0:
-            if self.name == "DAdGD-ST":
+            if self.name == "DOAS":
                 temp2 = sum([lamb[-1] for lamb in self.lambda_k.values()])/self.agents
                 print(f"Optimizer: {self.name}, Iteration: {iteration}, Loss: {temp_loss/self.agents}, Lambda: {(temp2)}, LR: {et}")
             else:
@@ -164,7 +164,7 @@ class Trainer:
             file.writerow(self.iterations)
             file.writerow(self.final_losses_plotted)
             # file.writerow(self.learning_rates)
-            if self.name == "DAdGD-ST" or self.name == "DAdGD-GST":
+            if self.name == "DOAS":
                 for i in range(self.agents):
                     file.writerow(self.lambd_time[i])
                 for i in range(self.agents):

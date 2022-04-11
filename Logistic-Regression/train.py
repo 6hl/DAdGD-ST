@@ -39,8 +39,8 @@ kap = args.kappa
 dadgd = DAdGD(agent_matrix=agent_matrix, iterations=iterations, data=data)
 dadgd.train()
 
-dadgdst = DAdGDST(kap=kap, agent_matrix=agent_matrix, iterations=iterations, data=data)
-dadgdst.train()
+doas = DOAS(kap=kap, agent_matrix=agent_matrix, iterations=iterations, data=data)
+doas.train()
 
 cdgd = CDGD(agent_matrix=agent_matrix, iterations=iterations,data=data)
 cdgd.train()
@@ -57,7 +57,7 @@ damsgrad.train()
 dadagrad = DAdaGrad(agent_matrix=agent_matrix, iterations=iterations, data=data)
 dadagrad.train()
 
-optimizers = [dadgd, dadgdst, cdgd, cdgdp, cdgdn, damsgrad, dadagrad]
+optimizers = [dadgd, doas, cdgd, cdgdp, cdgdn, damsgrad, dadagrad]
 plot_all_losses(optimizers, skip=1)
 
 
