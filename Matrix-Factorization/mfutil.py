@@ -334,8 +334,8 @@ def DAdGD(filename, w, A, cgrad, param_list, eta_list, grad_list, agents=5, iter
             print(f"{name}, Iteration: {i}, Gradient Norm: {grad_norms[-1]}, Eta: {eta_list[0][-1]}")
     record_results(filename, iters, grad_norms, eta_list, name, skip=skip)
     
-def DAdGD_ST(filename, w, A, cgrad, param_list, eta_list, grad_list, agents=5, iterations=100, kap=0.99, skip=20):
-    name = "DAdGD-ST"
+def DOAS(filename, w, A, cgrad, param_list, eta_list, grad_list, agents=5, iterations=100, kap=0.99, skip=20):
+    name = "DOAS"
     iters = []
     theta_list = {}
     i_results = {}
@@ -409,7 +409,7 @@ def record_results(filename, iters, grad_norm, eta_list, name, lambda_list=None,
         file.writerow([name])
         file.writerow(iters)
         file.writerow(grad_norm)
-        if name == "DAdGD-ST":
+        if name == "DOAS":
             for i in range(agents):
                 file.writerow(lambda_list[i][::skip])
             for i in range(agents):

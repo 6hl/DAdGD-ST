@@ -72,7 +72,7 @@ elif train_set == 3:
 elif train_set == 4:
     DAdGD(filename, agent_matrix, A,cgrad, param_list.copy(), eta_list.copy(), grad_list.copy(), agents=5, iterations=iterations, skip=skip)
 elif train_set == 5:
-    DAdGD_ST(filename, agent_matrix, A, cgrad, param_list.copy(), eta_list.copy(), grad_list.copy(), agents=5, iterations=iterations, kap=kap, skip=skip)
+    DOAS(filename, agent_matrix, A, cgrad, param_list.copy(), eta_list.copy(), grad_list.copy(), agents=5, iterations=iterations, kap=kap, skip=skip)
 elif train_set == 6:
     DAMSGrad(filename, agent_matrix, A, cgrad, param_list.copy(), grad_list.copy(), agents=5, iterations=iterations, L=adaL, skip=skip, strat=strat)
 elif train_set == 7:
