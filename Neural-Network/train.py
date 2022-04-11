@@ -15,7 +15,7 @@ from torch.utils.data.dataloader import default_collate
 
 
 from models import *
-from ops import dAdSGD, DAdSGDST, CDSGD, CDSGDP, CDSGDN, DAMSGrad, DAdaGrad
+from ops import DAdSGD, DAdSGDST, CDSGD, CDSGDP, CDSGDN, DAMSGrad, DAdaGrad
 
 
 warnings.filterwarnings("ignore")
@@ -31,7 +31,7 @@ class DTrainer:
                 num=0.5, 
                 kmult=0.0, 
                 exp=0.7,
-                opt_name="dAdSGD",
+                opt_name="DAdSGD",
                 w=None,
                 kappa=0.9,
                 fname=None,
@@ -157,8 +157,8 @@ class DTrainer:
             self.test_loader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False)
 
     def set_opt(self):
-        if self.opt_name == "dAdSGD":
-            self.opt = dAdSGD
+        if self.opt_name == "DAdSGD":
+            self.opt = DAdSGD
         elif self.opt_name == "DAdSGD-ST":
             self.opt = DAdSGDST
         elif self.opt_name == "CDSGD":
@@ -206,7 +206,7 @@ class DTrainer:
             self.agent_models[i].to(self.device)
             self.agent_models[i].train()
 
-            if self.opt_name == "dAdSGD" or self.opt_name == "DAdSGD-ST":
+            if self.opt_name == "DAdSGD" or self.opt_name == "DAdSGD-ST":
                 self.prev_agent_models[i] = copy.deepcopy(model)
                 self.prev_agent_models[i].to(self.device)
                 self.prev_agent_models[i].train()
@@ -271,7 +271,7 @@ class DTrainer:
                 vars[i], grads[i] = self.agent_optimizers[i].collect_params()
 
 
-                if self.opt_name == "dAdSGD" or self.opt_name == "DAdSGD-ST":
+                if self.opt_name == "DAdSGD" or self.opt_name == "DAdSGD-ST":
                     
                     self.prev_agent_optimizers[i].zero_grad()
                     prev_predicted_label = self.prev_agent_models[i](inputs)
@@ -303,7 +303,7 @@ class DTrainer:
                 tot_loss += loss[i].item()
             
             for i in range(self.agents):
-                if self.opt_name == "dAdSGD":
+                if self.opt_name == "DAdSGD":
                     self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
                     self.agent_optimizers[i].step(self.running_iteration, vars=vars)
                 
@@ -366,7 +366,7 @@ class DTrainer:
         return total_acc/total_count
 
     def trainer(self):
-        if self.opt_name == "dAdSGD" or self.opt_name == "DAdSGD-ST":
+        if self.opt_name == "DAdSGD" or self.opt_name == "DAdSGD-ST":
             print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}")
         else:
             print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}" +
@@ -408,7 +408,7 @@ print(f"Test Num {args.test_num}, run num: {args.run_num}, {fname}")
 
 
 if args.test_num == 0:
-    DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="dAdSGD", w=w, fname=fname, stratified=stratified)
+    DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="DAdSGD", w=w, fname=fname, stratified=stratified)
 elif args.test_num == 1:
     DTrainer(dataset=dataset, batch_size=bs, epochs=epochs, opt_name="DAdSGD-ST", w=w, kappa=0.37, fname=fname, stratified=stratified)
 elif args.test_num == 2:

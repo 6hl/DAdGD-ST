@@ -207,9 +207,9 @@ class CDSGDN(base):
             group["momentum_p"] = v_new
         return loss
 
-class dAdSGD(base):
+class DAdSGD(base):
     def __init__(self, *args, **kwargs):
-        super(dAdSGD, self).__init__(*args, **kwargs)
+        super(DAdSGD, self).__init__(*args, **kwargs)
     
     def step(self, k, vars=None, closure=None, lambdas=None, grads=None):
         loss = None
