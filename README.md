@@ -1,1 +1,1 @@
-# DAdGD-ST
+# Decentralized learning with automated stepsizes
