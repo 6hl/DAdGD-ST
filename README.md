@@ -6,3 +6,15 @@ To run an experiment, use command:
 ```
 ./trainer.sh
 ```
+
+### Dependencies
+
+```
+torch==
+torchvision==
+numpy==
+scipy==
+pandas==
+sklearn==
+matplotlib==
+```
