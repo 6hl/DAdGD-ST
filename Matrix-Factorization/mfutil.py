@@ -1,8 +1,9 @@
+import csv
+
 import numpy as np
 import scipy.linalg as LA
 from scipy.sparse import random as r
 import pandas as pd
-import csv
 
 np.random.seed(0)
 def load_data(stratified, agents=5):
