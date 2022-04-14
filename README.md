@@ -10,11 +10,11 @@ To run an experiment, use command:
 ### Dependencies
 
 ```
-torch==
-torchvision==
-numpy==
-scipy==
-pandas==
-sklearn==
-matplotlib==
+torch==1.10.2
+torchvision==0.11.3
+numpy==1.21.5
+scipy==1.8.0
+pandas==1.4.1
+sklearn==1.0.2
+matplotlib==3.5.1
 ```
