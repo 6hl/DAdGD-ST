@@ -385,7 +385,6 @@ w = np.array([[0.6, 0, 0, 0.4, 0],[0.2, 0.8, 0, 0, 0], [0.2, 0.1, 0.4, 0, 0.3], 
 dataset = "cifar10"
 epochs = 800
 bs = 32
-stratified = False
 
 def parse_args():
     ''' Function parses command line arguments '''
@@ -400,8 +399,10 @@ cwd = os.getcwd()
 results_path = os.path.join(cwd, "results")
 if not os.path.isdir(results_path):
     os.mkdir(results_path)
-fname = os.path.join(results_path,f"{dataset}_e{epochs}_hom{stratified}_{args.test_num}.csv")
+
 stratified = args.stratified
+fname = os.path.join(results_path,f"{dataset}_e{epochs}_hom{stratified}_{args.test_num}.csv")
+
 
 print(f"Test Num {args.test_num}, run num: {args.run_num}, {fname}")
 
