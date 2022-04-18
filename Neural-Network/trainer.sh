@@ -1,5 +1,5 @@
 #!/bin/bash
-for ((s=0; a <= 1; a++))
+for ((s=0; s <= 1; s++))
 do
   for ((a=0; a <= 6; a++))
   do
