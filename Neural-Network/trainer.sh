@@ -6,9 +6,9 @@ do
     for ((b=1; b <= 3; b++))
     do
       if [ $s -eq 0 ]; then
-        python train.py -t $a -r $b -s
+        python main.py -t $a -r $b -s
       else
-        python train.py -t $a -r $b
+        python main.py -t $a -r $b
       fi
     done
   done
