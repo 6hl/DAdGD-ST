@@ -2,24 +2,15 @@ import numpy as np
 import torch
 from torch.optim.optimizer import Optimizer
 
-class base(Optimizer):
-    def __init__(self, params, idx, w, agents, lr=0.02, num=0.5, kmult=0.007, name="qdSGD", device=None, 
+class Base(Optimizer):
+    def __init__(self, params, idx, w, agents, lr=0.02, num=0.5, kmult=0.007, name=None, device=None, 
                 amplifier=.1, theta=np.inf, damping=.4, eps=1e-5, weight_decay=0, kappa=0.9, stratified=True):
 
         defaults = dict(idx=idx, lr=lr, w=w, num=num, kmult=kmult, agents=agents, name=name, device=device,
                 amplifier=amplifier, theta=theta, damping=damping, eps=eps, weight_decay=weight_decay, kappa=kappa, lamb=lr, stratified=stratified)
         
-        super(base, self).__init__(params, defaults)
-    
-    def __setstate__(self, state):
-        super(base, self).__setstate__(state)
-        for group in self.param_groups:
-            group.setdefault('lr', 0.02)
-            group.setdefault('amplifier', .5) #0.02 amplifier up(.1,.4)(.5,.3=.79)
-            group.setdefault('damping', 0.4) #0.6 regular
-            group.setdefault('theta', np.inf)
-            group.setdefault("nest_mom", None)
-    
+        super(Base, self).__init__(params, defaults)
+
     def compute_dif_norms(self, prev_optimizer):
         for group, prev_group in zip(self.param_groups, prev_optimizer.param_groups):
             grad_dif_norm = 0
@@ -35,7 +26,6 @@ class base(Optimizer):
             gr, pra = np.sqrt(grad_dif_norm), np.sqrt(param_dif_norm)
             group['grad_dif_norm'] = np.sqrt(grad_dif_norm)
             group['param_dif_norm'] = np.sqrt(param_dif_norm)
-        
         return gr, pra
 
     def set_norms(self, grad_diff, param_diff):
@@ -47,26 +37,23 @@ class base(Optimizer):
         for group in self.param_groups:
             grads = []
             vars = []
-            
             if lr:
                 return group['lr']
-
             for p in group['params']:
                 if p.grad is None:
                     continue
                 vars.append(p.data.clone().detach())
                 grads.append(p.grad.data.clone().detach())
-
         return vars, grads
     
     def step(self):
         pass
 
-class CDSGD(base):
+class CDSGD(Base):
     def __init__(self, *args, **kwargs):
         super(CDSGD, self).__init__(*args, **kwargs)
 
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None):
+    def step(self, k, vars=None, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -76,7 +63,6 @@ class CDSGD(base):
             num = group['num']
             kmult = group['kmult']
             w = group['w']
-            name = group['name']
             agents = group["agents"]
             device=group["device"]
 
@@ -88,18 +74,17 @@ class CDSGD(base):
                 if p.grad is None:
                     sub -= 1
                     continue
-                g = p.grad.data
                 summat = torch.zeros(p.data.size()).to(device)
                 for j in range(agents):
                     summat += w[idx, j] * (vars[j][i+sub].to(device))
                 p.data = summat - lr * p.grad.data
         return loss
 
-class CDSGDP(base):
+class CDSGDP(Base):
     def __init__(self, *args, **kwargs):
         super(CDSGDP, self).__init__(*args, **kwargs)
 
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None):
+    def step(self, k, vars=None, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -109,12 +94,10 @@ class CDSGDP(base):
             num = group['num']
             kmult = group['kmult']
             w = group['w']
-            name = group['name']
             agents = group["agents"]
             device=group["device"]
             
             if k == 0:
-                momentum_p = None
                 group["momentum_p"] = None
             else:
                 nest = group["momentum_p"]
@@ -136,9 +119,6 @@ class CDSGDP(base):
                     
                 summat = torch.zeros(p.data.size()).to(device)
 
-
-
-                p_data_i = p.data
                 for j in range(agents):
                     summat += w[idx, j] * (vars[j][i+sub].to(device))
                         
@@ -152,11 +132,11 @@ class CDSGDP(base):
 
         return loss
 
-class CDSGDN(base):
+class CDSGDN(Base):
     def __init__(self, *args, **kwargs):
         super(CDSGDN, self).__init__(*args, **kwargs)
 
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None):
+    def step(self, k, vars=None, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -166,12 +146,10 @@ class CDSGDN(base):
             num = group['num']
             kmult = group['kmult']
             w = group['w']
-            name = group['name']
             agents = group["agents"]
             device=group["device"]
             
             if k == 0:
-                momentum_p = None
                 group["momentum_p"] = None
             else:
                 nest = group["momentum_p"]
@@ -194,12 +172,8 @@ class CDSGDN(base):
                     torch.norm(v_t_new).backward()
                     
                 summat = torch.zeros(p.data.size()).to(device)
-
-
-
                 for j in range(agents):
                     summat += w[idx, j] * (vars[j][i+sub].to(device))
-                
                 p.data = summat + v_t_new
 
                 v_new.append(v_t_new)
@@ -207,19 +181,17 @@ class CDSGDN(base):
             group["momentum_p"] = v_new
         return loss
 
-class DAdSGD(base):
+class DAdSGD(Base):
     def __init__(self, *args, **kwargs):
         super(DAdSGD, self).__init__(*args, **kwargs)
     
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None):
+    def step(self, k, vars=None, closure=None):
         loss = None
         if closure is not None:
             loss = closure()
 
         for group in self.param_groups:
             idx = group['idx']
-            num = group['num']
-            kmult = group['kmult']
             w = group['w']
             agents = group["agents"]
             device=group["device"]
@@ -259,7 +231,7 @@ class DAdSGD(base):
 
         return loss
 
-class DLAS(base):
+class DLAS(Base):
     def __init__(self, *args, **kwargs):
         super(DLAS, self).__init__(*args, **kwargs)
 
@@ -267,7 +239,7 @@ class DLAS(base):
         for group in self.param_groups:
             return group["lamb"]
             
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None):
+    def step(self, k, vars=None, closure=None, lambdas=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -282,10 +254,10 @@ class DLAS(base):
             
             if group["stratified"]:
                 alpha = 1
-                amplifier = 0.02 # 1
+                amplifier = 0.02
             else:
                 alpha = 1/.9
-                amplifier = .05 # 1
+                amplifier = .05
 
             theta = group['theta']
             grad_dif_norm = group['grad_dif_norm']
@@ -322,7 +294,7 @@ class DLAS(base):
                 
                 # Strong fluctuations during early iterations of an epoch mitigated
                 if lr_new - lr < 0 and sum_lamb < abs(lr_new - lr):
-                    lamb = sum_lamb #+ (lr_new-lr)*0.01
+                    lamb = sum_lamb
                 else:
                     lamb = sum_lamb + lr_new - lr
 
@@ -342,7 +314,7 @@ class DLAS(base):
 
         return loss
 
-class DAMSGrad(base):
+class DAMSGrad(Base):
     def __init__(self, *args, **kwargs):
         super(DAMSGrad, self).__init__(*args, **kwargs)
 
@@ -350,7 +322,7 @@ class DAMSGrad(base):
         for group in self.param_groups:
             return group["u_tilde_5"]
         
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None, u_tilde_5_all=None):
+    def step(self, k, vars=None, closure=None, u_tilde_5_all=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -414,7 +386,7 @@ class DAMSGrad(base):
             group["u_tilde_5"] = u_tilde_5_list
         return loss
 
-class DAdaGrad(base):
+class DAdaGrad(Base):
     def __init__(self, *args, **kwargs):
         super(DAdaGrad, self).__init__(*args, **kwargs)
 
@@ -422,7 +394,7 @@ class DAdaGrad(base):
         for group in self.param_groups:
             return group["u_tilde_5"]
         
-    def step(self, k, vars=None, closure=None, lambdas=None, grads=None, u_tilde_5_all=None):
+    def step(self, k, vars=None, closure=None, u_tilde_5_all=None):
         loss = None
         if closure is not None:
             loss = closure()
@@ -479,11 +451,3 @@ class DAdaGrad(base):
             group["v_hat"] = v_hat_t_list
             group["u_tilde_5"] = u_tilde_5_list
         return loss
-
-
-if __name__ == "__main__":
-    var = torch.normal(0,1, (5,5))
-    st = torch.max(torch.abs(var))
-    bernoulli = torch.abs(var) / st
-    bt = torch.bernoulli(input=bernoulli)
-    print(( torch.sign(var) * bt))

@@ -26,7 +26,6 @@ class DTrainer:
                 num=0.5, 
                 kmult=0.0, 
                 exp=0.7,
-                opt_name="DAdSGD",
                 w=None,
                 kappa=0.9,
                 fname=None,
@@ -51,22 +50,17 @@ class DTrainer:
         self.kmult = kmult
         self.exp = exp
         self.kappa = kappa
-        self.opt_name = opt_name
         self.fname = fname
         self.stratified = stratified
         self.load_data()
-        self.set_opt()
-        
         self.w = w
         self.criterion = torch.nn.CrossEntropyLoss()
         self.agent_setup()
-        self.trainer()
-        self._save()
 
-    def _log(self, accuracy, iteration, epoch, log_interval, i):
+    def _log(self, accuracy):
         ''' Helper function to log accuracy values'''
         self.train_accuracy.append(accuracy)
-        self.train_iterations.append(iteration + epoch * log_interval)
+        self.train_iterations.append(self.running_iteration)
 
     def _save(self):
         with open(self.fname, mode='a') as csv_file:
@@ -90,8 +84,6 @@ class DTrainer:
         print("==> Loading Data")
         self.train_loader = {}
         self.test_loader = {}
-
-        
 
         if self.dataset == 'cifar10':
             transform_train = transforms.Compose([transforms.RandomCrop(32, padding=4),
@@ -151,22 +143,6 @@ class DTrainer:
                 self.train_loader[i] = torch.utils.data.DataLoader(temp_train, batch_size=self.batch_size, shuffle=True)               
             self.test_loader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False)
 
-    def set_opt(self):
-        if self.opt_name == "DAdSGD":
-            self.opt = DAdSGD
-        elif self.opt_name == "DLAS":
-            self.opt = DLAS
-        elif self.opt_name == "CDSGD":
-            self.opt = CDSGD
-        elif self.opt_name == "CDSGD-P":
-            self.opt = CDSGDP
-        elif self.opt_name == "CDSGD-N":
-            self.opt = CDSGDN
-        elif self.opt_name == "DAMSGrad":
-            self.opt = DAMSGrad
-        elif self.opt_name == "DAdaGrad":
-            self.opt = DAdaGrad
-
     def agent_setup(self):
         for i in range(self.agents):
             self.lr_logs[i] = []
@@ -182,6 +158,7 @@ class DTrainer:
         
         elif self.dataset == "imagenet":
             raise ValueError("ImageNet Not Supported: Low Computing Power")
+
         elif self.dataset == "mnist":
             model = mCNN2()
 
@@ -233,14 +210,69 @@ class DTrainer:
                             stratified=self.stratified
                         )
 
+    def eval(self, dataloader):
+        total_acc, total_count = 0, 0
+
+        with torch.no_grad():
+
+            for i in range(self.agents):
+                self.agent_models[i].eval()
+
+                for inputs, labels in dataloader:
+                    inputs, labels = inputs.to(self.device), labels.to(self.device)
+                    predicted_label = self.agent_models[i](inputs)
+
+                    total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                    total_count += labels.size(0)
+
+        self.test_iterations.append(self.running_iteration)
+        self.test_accuracy.append(total_acc/total_count)
+
+        return total_acc/total_count
+
+    def it_logger(self, total_acc, total_count, epoch, log_interval, tot_loss, start_time):
+        self._log(total_acc/total_count)
+        t_acc = self.eval(self.test_loader)
+        for i in range(self.agents):
+            self.lr_logs[i].append(self.agent_optimizers[i].collect_params(lr=True))
+            if self.opt_name == "DLAS":
+                self.lambda_logs[i].append(self.agent_optimizers[i].collect_lambda())
+
+        ss = self.lr_logs[0][-1] if self.opt_name != "DLAS" else self.lambda_logs[0][-1]
+        print(
+            f"Epoch: {epoch+1}, Iteration: {self.running_iteration}, "+ 
+            f"Accuracy: {total_acc/total_count:.4f}, "+ 
+            f"Test Accuracy: {t_acc:.4f}, " + 
+            f"Loss: {tot_loss/(self.agents * log_interval):.4f}, "+
+            f"ss: {ss:.5f}, "+
+            f"Time taken: {perf_counter()-start_time:.4f}"
+        )
+                
+        self.loss_list.append(tot_loss/(self.agents * log_interval))
+
+    def trainer(self):
+        if self.opt_name == "DAdSGD" or self.opt_name == "DLAS":
+            print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}")
+        else:
+            print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}" +
+                  f" for {self.num}, {self.kmult}")
+        for i in range(self.agents):
+            self.test_accuracy = []
+            self.train_accuracy = []
+
+        for i in range(self.epochs):
+            self.epoch_iterations(i, self.train_loader)
+
+
+class DAdSGDTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = DAdSGD
+        self.opt_name="DAdSGD"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
 
     def epoch_iterations(self, epoch, dataloader):
-        ''' Training function used to train model iterations for SGD
-        Args:
-            dataloader: dataloader as defined by pytorch for training
-            epoch (int):  epoch number of training
-
-        '''
         start_time = perf_counter()
         if self.dataset == "cifar10":
             log_interval = int(len(dataloader[0]) - 1)
@@ -248,6 +280,231 @@ class DTrainer:
             log_interval = 25
         
         loss, prev_loss = {}, {}
+        total_acc, total_count, tot_loss = 0, 0, 0
+
+        for idx, data in enumerate(zip(*dataloader.values())):
+            self.running_iteration = idx + epoch * len(dataloader[0])
+            vars, grads, grad_diff, param_diff = {}, {}, {}, {}
+            
+
+            for i in range(self.agents):
+                self.agent_optimizers[i].zero_grad()
+                inputs, labels = data[i]
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+                predicted_label = self.agent_models[i](inputs)
+                loss[i] = self.criterion(predicted_label, labels)
+                loss[i].backward()
+                vars[i], grads[i] = self.agent_optimizers[i].collect_params()
+ 
+                self.prev_agent_optimizers[i].zero_grad()
+                prev_predicted_label = self.prev_agent_models[i](inputs)
+                prev_loss[i] = self.criterion(prev_predicted_label, labels)
+                prev_loss[i].backward()
+
+                grad_diff[i], param_diff[i] = self.agent_optimizers[i].compute_dif_norms(self.prev_agent_optimizers[i])
+
+                if torch.cuda.device_count() > 1:
+                    new_mod_state_dict = OrderedDict()
+                    
+                    for k, v in self.agent_models[i].state_dict().items():
+                        new_mod_state_dict[k[7:]] = v
+                    self.prev_agent_models[i].load_state_dict(new_mod_state_dict)
+                else:
+                    self.prev_agent_models[i].load_state_dict(self.agent_models[i].state_dict())
+
+
+                total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                total_count += labels.size(0)
+
+                tot_loss += loss[i].item()
+            
+            for i in range(self.agents):
+                self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars)
+            
+            if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
+                total_acc, total_count, tot_loss = 0, 0, 0
+                self.agent_models[i].train()
+                start_time = perf_counter()
+        return total_acc
+
+class DLASTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = DLAS
+        self.opt_name="DLAS"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
+
+    def epoch_iterations(self, epoch, dataloader):
+        start_time = perf_counter()
+        if self.dataset == "cifar10":
+            log_interval = int(len(dataloader[0]) - 1)
+        else:
+            log_interval = 25
+        
+        loss, prev_loss = {}, {}
+        total_acc, total_count, tot_loss = 0, 0, 0
+
+        for idx, data in enumerate(zip(*dataloader.values())):
+            self.running_iteration = idx + epoch * len(dataloader[0])
+            vars, grads, grad_diff, param_diff, lambdas = {}, {}, {}, {}, {}
+
+            for i in range(self.agents):
+                self.agent_optimizers[i].zero_grad()
+                inputs, labels = data[i]
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+                predicted_label = self.agent_models[i](inputs)
+                loss[i] = self.criterion(predicted_label, labels)
+                loss[i].backward()
+                vars[i], grads[i] = self.agent_optimizers[i].collect_params()
+
+                self.prev_agent_optimizers[i].zero_grad()
+                prev_predicted_label = self.prev_agent_models[i](inputs)
+                prev_loss[i] = self.criterion(prev_predicted_label, labels)
+                prev_loss[i].backward()
+                lambdas[i] = self.agent_optimizers[i].collect_lambda()
+                grad_diff[i], param_diff[i] = self.agent_optimizers[i].compute_dif_norms(self.prev_agent_optimizers[i])
+
+                if torch.cuda.device_count() > 1:
+                    new_mod_state_dict = OrderedDict()
+                    
+                    for k, v in self.agent_models[i].state_dict().items():
+                        new_mod_state_dict[k[7:]] = v
+                    self.prev_agent_models[i].load_state_dict(new_mod_state_dict)
+                else:
+                    self.prev_agent_models[i].load_state_dict(self.agent_models[i].state_dict())
+
+                total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                total_count += labels.size(0)
+
+                tot_loss += loss[i].item()
+            
+            for i in range(self.agents):
+                self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars, lambdas=lambdas)
+
+            if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
+                total_acc, total_count, tot_loss = 0, 0, 0
+                self.agent_models[i].train()
+                start_time = perf_counter()
+        return total_acc
+
+class CDSGDTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = CDSGD
+        self.opt_name="CDSGD"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
+
+    def epoch_iterations(self, epoch, dataloader):
+        start_time = perf_counter()
+        if self.dataset == "cifar10":
+            log_interval = int(len(dataloader[0]) - 1)
+        else:
+            log_interval = 25
+        
+        loss = {}
+        total_acc, total_count, tot_loss = 0, 0, 0
+
+        for idx, data in enumerate(zip(*dataloader.values())):
+            self.running_iteration = idx + epoch * len(dataloader[0])
+            vars, grads = {}, {}
+
+            for i in range(self.agents):
+                self.agent_optimizers[i].zero_grad()
+                inputs, labels = data[i]
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+                predicted_label = self.agent_models[i](inputs)
+                loss[i] = self.criterion(predicted_label, labels)
+                loss[i].backward()
+                vars[i], grads[i] = self.agent_optimizers[i].collect_params()
+
+
+                total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                total_count += labels.size(0)
+
+                tot_loss += loss[i].item()
+            
+            for i in range(self.agents):
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars)
+            
+            if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
+                total_acc, total_count, tot_loss = 0, 0, 0
+                self.agent_models[i].train()
+                start_time = perf_counter()
+        return total_acc
+
+class CDSGDPTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = CDSGDP
+        self.opt_name="CDSGD-P"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
+
+    def epoch_iterations(self, epoch, dataloader):
+        start_time = perf_counter()
+        if self.dataset == "cifar10":
+            log_interval = int(len(dataloader[0]) - 1)
+        else:
+            log_interval = 25
+        
+        loss = {}
+        total_acc, total_count, tot_loss = 0, 0, 0
+
+        for idx, data in enumerate(zip(*dataloader.values())):
+            self.running_iteration = idx + epoch * len(dataloader[0])
+            vars, grads = {}, {}
+
+            for i in range(self.agents):
+                self.agent_optimizers[i].zero_grad()
+                inputs, labels = data[i]
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+                predicted_label = self.agent_models[i](inputs)
+                loss[i] = self.criterion(predicted_label, labels)
+                loss[i].backward()
+                vars[i], grads[i] = self.agent_optimizers[i].collect_params()
+
+                total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                total_count += labels.size(0)
+
+                tot_loss += loss[i].item()
+            
+            for i in range(self.agents):
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars)
+            
+            if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
+                total_acc, total_count, tot_loss = 0, 0, 0
+                self.agent_models[i].train()
+                start_time = perf_counter()
+        return total_acc
+
+class CDSGDNTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = CDSGDN
+        self.opt_name="CDSGD-N"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
+
+    def epoch_iterations(self, epoch, dataloader):
+        start_time = perf_counter()
+        if self.dataset == "cifar10":
+            log_interval = int(len(dataloader[0]) - 1)
+        else:
+            log_interval = 25
+        
+        loss = {}
         total_acc, total_count, tot_loss = 0, 0, 0
 
         for idx, data in enumerate(zip(*dataloader.values())):
@@ -265,31 +522,103 @@ class DTrainer:
                 loss[i].backward()
                 vars[i], grads[i] = self.agent_optimizers[i].collect_params()
 
+                total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                total_count += labels.size(0)
 
-                if self.opt_name == "DAdSGD" or self.opt_name == "DLAS":
-                    
-                    self.prev_agent_optimizers[i].zero_grad()
-                    prev_predicted_label = self.prev_agent_models[i](inputs)
-                    prev_loss[i] = self.criterion(prev_predicted_label, labels)
-                    prev_loss[i].backward()
+                tot_loss += loss[i].item()
+            
+            for i in range(self.agents):
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars)
+            
+            if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
+                total_acc, total_count, tot_loss = 0, 0, 0
+                self.agent_models[i].train()
+                start_time = perf_counter()
+        return total_acc
 
+class DAMSGradTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = DAMSGrad
+        self.opt_name="DAMSGrad"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
 
-                    if self.opt_name == "DLAS":
-                        lambdas[i] = self.agent_optimizers[i].collect_lambda()
+    def epoch_iterations(self, epoch, dataloader):
+        start_time = perf_counter()
+        if self.dataset == "cifar10":
+            log_interval = int(len(dataloader[0]) - 1)
+        else:
+            log_interval = 25
+        
+        loss = {}
+        total_acc, total_count, tot_loss = 0, 0, 0
 
-                    _, old_grads[i] = self.prev_agent_optimizers[i].collect_params()
-                    grad_diff[i], param_diff[i] = self.agent_optimizers[i].compute_dif_norms(self.prev_agent_optimizers[i])
+        for idx, data in enumerate(zip(*dataloader.values())):
+            self.running_iteration = idx + epoch * len(dataloader[0])
+            vars, grads, u_tilde_5 = {}, {}, {}
 
-                    if torch.cuda.device_count() > 1:
-                        new_mod_state_dict = OrderedDict()
-                        
-                        for k, v in self.agent_models[i].state_dict().items():
-                            new_mod_state_dict[k[7:]] = v
-                        self.prev_agent_models[i].load_state_dict(new_mod_state_dict)
-                    else:
-                        self.prev_agent_models[i].load_state_dict(self.agent_models[i].state_dict())
+            for i in range(self.agents):
+                self.agent_optimizers[i].zero_grad()
+                inputs, labels = data[i]
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
 
-                if (self.opt_name == "DAMSGrad" or self.opt_name == "DAdaGrad") and self.running_iteration > 0:
+                predicted_label = self.agent_models[i](inputs)
+                loss[i] = self.criterion(predicted_label, labels)
+                loss[i].backward()
+                vars[i], grads[i] = self.agent_optimizers[i].collect_params()
+
+                if self.running_iteration > 0:
+                    u_tilde_5[i] = self.agent_optimizers[i].collect_u()
+
+                total_acc += (predicted_label.argmax(1) == labels).sum().item()
+                total_count += labels.size(0)
+                tot_loss += loss[i].item()
+            
+            for i in range(self.agents):
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars, u_tilde_5_all=u_tilde_5)
+
+            if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
+                total_acc, total_count, tot_loss = 0, 0, 0
+                self.agent_models[i].train()
+                start_time = perf_counter()
+        return total_acc
+
+class DAdaGradTrainer(DTrainer):
+    def __init__(self, *args, **kwargs):
+        self.opt = DAdaGrad
+        self.opt_name="DAdaGrad"
+        super().__init__(*args, **kwargs)
+        self.trainer()
+        self._save()
+
+    def epoch_iterations(self, epoch, dataloader):
+        start_time = perf_counter()
+        if self.dataset == "cifar10":
+            log_interval = int(len(dataloader[0]) - 1)
+        else:
+            log_interval = 25
+        
+        loss = {}
+        total_acc, total_count, tot_loss = 0, 0, 0
+
+        for idx, data in enumerate(zip(*dataloader.values())):
+            self.running_iteration = idx + epoch * len(dataloader[0])
+            vars, grads, u_tilde_5 = {}, {}, {}
+
+            for i in range(self.agents):
+                self.agent_optimizers[i].zero_grad()
+                inputs, labels = data[i]
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+
+                predicted_label = self.agent_models[i](inputs)
+                loss[i] = self.criterion(predicted_label, labels)
+                loss[i].backward()
+                vars[i], grads[i] = self.agent_optimizers[i].collect_params()
+
+                if self.running_iteration > 0:
                     u_tilde_5[i] = self.agent_optimizers[i].collect_u()
 
                 total_acc += (predicted_label.argmax(1) == labels).sum().item()
@@ -298,77 +627,12 @@ class DTrainer:
                 tot_loss += loss[i].item()
             
             for i in range(self.agents):
-                if self.opt_name == "DAdSGD":
-                    self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
-                    self.agent_optimizers[i].step(self.running_iteration, vars=vars)
-                
-                elif self.opt_name == "DLAS":
-                    self.agent_optimizers[i].set_norms(grad_diff[i], param_diff[i])
-                    self.agent_optimizers[i].step(self.running_iteration, vars=vars, lambdas=lambdas)
+                self.agent_optimizers[i].step(self.running_iteration, vars=vars, u_tilde_5_all=u_tilde_5)
 
-                elif self.opt_name == "DAMSGrad" or self.opt_name == "DAdaGrad":
-                    self.agent_optimizers[i].step(self.running_iteration, vars=vars, u_tilde_5_all=u_tilde_5)
-                else:
-                    self.agent_optimizers[i].step(self.running_iteration, vars=vars)
             
             if idx % log_interval == 0 and idx > 0 and epoch % 2 != 0:
-                self._log(total_acc/total_count, idx, epoch, log_interval, i)
-                t_acc = self.eval(self.test_loader, self.running_iteration)
-                for i in range(self.agents):
-                    self.lr_logs[i].append(self.agent_optimizers[i].collect_params(lr=True))
-                    if self.opt_name == "DLAS":
-                        self.lambda_logs[i].append(self.agent_optimizers[i].collect_lambda())
-
-                ss = self.lr_logs[0][-1] if self.opt_name != "DLAS" else self.lambda_logs[0][-1]
-                print(f"Epoch: {epoch+1}, Iteration: {self.running_iteration}, "+ 
-                        f"Accuracy: {total_acc/total_count:.4f}, "+ 
-                        f"Test Accuracy: {t_acc:.4f}, " + 
-                        f"Loss: {tot_loss/(self.agents * log_interval):.4f}, "+
-                        f"ss: {ss:.5f}, "+
-                        f"Time taken: {perf_counter()-start_time:.4f}")
-                        
-                self.loss_list.append(tot_loss/(self.agents * log_interval))
+                self.it_logger(total_acc, total_count, epoch, log_interval, tot_loss, start_time)
                 total_acc, total_count, tot_loss = 0, 0, 0
                 self.agent_models[i].train()
                 start_time = perf_counter()
-
-
         return total_acc
-
-    def eval(self, dataloader, it=None):
-        ''' Function used to evaluate training data
-        Args:
-            dataloader: dataloader as defined by pytorch
-            it (int): iteration val
-        '''
-        total_acc, total_count = 0, 0
-
-        with torch.no_grad():
-
-            for i in range(self.agents):
-                self.agent_models[i].eval()
-
-                for idx, (inputs, labels) in enumerate(dataloader):
-                    inputs, labels = inputs.to(self.device), labels.to(self.device)
-                    predicted_label = self.agent_models[i](inputs)
-
-                    total_acc += (predicted_label.argmax(1) == labels).sum().item()
-                    total_count += labels.size(0)
-
-        self.test_iterations.append(it)
-        self.test_accuracy.append(total_acc/total_count)
-
-        return total_acc/total_count
-
-    def trainer(self):
-        if self.opt_name == "DAdSGD" or self.opt_name == "DLAS":
-            print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}")
-        else:
-            print(f"==> Starting Training for {self.opt_name}, {self.epochs} epochs and {self.agents} agents on the {self.dataset} dataset, via {self.device}" +
-                  f" for {self.num}, {self.kmult}")
-        for i in range(self.agents):
-            self.test_accuracy = []
-            self.train_accuracy = []
-
-        for i in range(self.epochs):
-            accuracy = self.epoch_iterations(i, self.train_loader)
