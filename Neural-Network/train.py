@@ -154,13 +154,13 @@ class DTrainer:
         self.prev_agent_optimizers = {}
 
         if self.dataset == 'cifar10':
-            model = CNN2()
+            model = CifarCNN()
         
         elif self.dataset == "imagenet":
             raise ValueError("ImageNet Not Supported: Low Computing Power")
 
         elif self.dataset == "mnist":
-            model = mCNN2()
+            model = MnistCNN()
 
         for i in range(self.agents):
             if i == 0:

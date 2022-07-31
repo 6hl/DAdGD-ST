@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-    
 
-class CNN2(torch.nn.Module):
+class CifarCNN(torch.nn.Module):
      def __init__(self, classes=10):
-        super(CNN2,self).__init__()
+        super().__init__()
 
         in_channels = 3
         kernel_size = 5
@@ -21,8 +20,7 @@ class CNN2(torch.nn.Module):
         self.flat = nn.Flatten(start_dim=1, end_dim=-1)
 
         self.dense1 = nn.Linear(in1, in2)
-        self.dense2 = nn.Linear(in2, in3)
-        self.dense3 = nn.Linear(in3, classes)
+        self.dense2 = nn.Linear(in3, classes)
 
      def forward(self,x):
         x = self.pool(F.relu(self.conv1(x)))
@@ -31,13 +29,12 @@ class CNN2(torch.nn.Module):
 
         x = x.view(-1, 512)
         x = F.relu(self.dense1(x))
-        # x = F.relu(self.dense2(x))
-        x = self.dense3(x)
+        x = self.dense2(x)
         return x
 
-class mCNN2(nn.Module):
+class MnistCNN(nn.Module):
     def __init__(self):
-        super(mCNN2, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=2)
         self.conv2 = nn.Conv2d(16, 32, 5, 1, 2)
         self.dense = nn.Linear(32 * 7 * 7, 10)
